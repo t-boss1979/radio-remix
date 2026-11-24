@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Radio Remix</title>
+<style>
+:root{--bg:#0f1115;--card:#1a1d24;--tx:#f2f3f5;--mut:#8b91a0;--ac:#1db954;--ac2:#4f8cff}
+@media(prefers-color-scheme:light){:root{--bg:#f4f5f7;--card:#fff;--tx:#14161a;--mut:#667085}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 system-ui,sans-serif;padding:max(16px,env(safe-area-inset-top)) 16px 32px}
+main{max-width:480px;margin:0 auto;display:grid;gap:14px}
+h1{font-size:22px;margin:4px 0 0}
+.card{background:var(--card);border-radius:16px;padding:16px}
+.row{display:flex;gap:10px}
+button{font:inherit;color:var(--tx);border:0;border-radius:12px;padding:12px 14px;background:var(--bg);cursor:pointer}
+.st{flex:1;font-size:20px;font-weight:700;padding:18px}
+.st.on{background:var(--ac2);color:#fff}
+select{width:100%;margin-top:10px;padding:12px;border-radius:12px;border:0;background:var(--bg);color:var(--tx);font:inherit}
+#play{width:100%;background:var(--ac);color:#fff;font-weight:700;font-size:18px;padding:16px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{padding:8px 14px;border-radius:99px}
+.chips button.on{background:var(--ac);color:#fff}
+.mut{color:var(--mut);font-size:14px}
+#status{font-weight:700;margin-top:6px}
+#status.swap{color:var(--ac)}
+input[type=text]{width:100%;padding:10px;border-radius:10px;border:1px solid var(--mut);background:var(--bg);color:var(--tx);font:inherit}
+input[type=range]{width:100%}
+code{word-break:break-all;font-size:13px}
+details summary{cursor:pointer;font-weight:600}
+#msg{color:#e5484d;min-height:1.2em;font-size:14px}
+</style>
+</head>
+<body>
+<main>
+  <h1>📻 Radio Remix</h1>
+
+  <div class="card">
+    <div class="row">
+      <button class="st on" id="b-p3">P3</button>
+      <button class="st" id="b-p4">P4</button>
+    </div>
+    <select id="region" hidden></select>
+    <div style="height:10px"></div>
+    <button id="play">▶ Lyssna</button>
+  </div>
+
+  <div class="card">
+    <div class="mut">Just nu i radion</div>
+    <div id="now">–</div>
+    <div id="status" class="mut">Stoppad</div>
+    <div class="mut" style="margin-top:12px">Spelas i Spotify</div>
+    <div id="spot">–</div>
+  </div>
+
+  <div class="card">
+    <div class="mut" style="margin-bottom:8px">Ersätt musiken med</div>
+    <div class="chips" id="genres"></div>
+  </div>
+
+  <div class="card">
+    <div class="mut">Justera timing: <b id="dv">0</b> s</div>
+    <input type="range" id="delay" min="-20" max="30" value="0">
+    <div class="mut">Höj om bytet kommer för tidigt, sänk om det kommer för sent.</div>
+  </div>
+
+  <details class="card" id="setup">
+    <summary>Spotify-inställningar</summary>
+    <p class="mut">Skapa en app på developer.spotify.com/dashboard, lägg till adressen nedan som Redirect URI och klistra in Client ID. Kräver Spotify Premium.</p>
+    <div class="mut">Redirect URI:</div>
+    <code id="redir"></code>
+    <p><input type="text" id="cid" placeholder="Spotify Client ID"></p>
+    <div class="row">
+      <button id="login" style="background:var(--ac);color:#fff">Logga in på Spotify</button>
+      <button id="logout">Logga ut</button>
+    </div>
+    <p class="mut" id="auth">Ej inloggad</p>
+  </details>
+
+  <div id="msg"></div>
+  <audio id="audio" preload="none"></audio>
+</main>
+
+<script>
+const $=s=>document.querySelector(s);
+const LS=k=>localStorage.getItem(k), SET=(k,v)=>localStorage.setItem(k,v);
+const REDIR=location.href.split('?')[0].split('#')[0];
+const REGIONS=[['P4 Blekinge','p4blek'],['P4 Dalarna','p4dala'],['P4 Gotland','p4gotl'],['P4 Gävleborg','p4gavl'],['P4 Göteborg','p4gbg'],['P4 Halland','p4hall'],['P4 Jämtland','p4jmtl'],['P4 Jönköping','p4jkpg'],['P4 Kalmar','p4kalm'],['P4 Kristianstad','p4krist'],['P4 Kronoberg','p4kron'],['P4 Malmöhus','p4malm'],['P4 Norrbotten','p4nbtn'],['P4 Sjuhärad','p4sju'],['P4 Skaraborg','p4skbg'],['P4 Stockholm','p4sth'],['P4 Sörmland','p4sorm'],['P4 Uppland','p4uppl'],['P4 Värmland','p4vrml'],['P4 Väst','p4vast'],['P4 Västerbotten','p4vbtn'],['P4 Västernorrland','p4vnrl'],['P4 Västmanland','p4vstm'],['P4 Örebro','p4oreb'],['P4 Östergötland','p4ostg']];
+const live=c=>`https://live1.sr.se/${c}-aac-128`;
+const ST={p3:{id:164,url:live('p3')},p4:{id:701,url:live('p4sth')}};
+const chIds={'P4 Stockholm':701};
+const GENRES=[['Pop','pop'],['Rock','rock'],['Hiphop','hip hop'],['Jazz','jazz'],['Klassisk','classical'],['Elektronisk','electronic'],['Country','country'],['Reggae','reggae'],['Metal','metal'],['Folk','folk'],['Indie','indie'],['R&B','r&b']];
+let station='p3', playing=false, swapped=false, song=null, retryAt=0, lock=null;
+let genre=LS('genre')||'pop', delay=+(LS('delay')||0);
+const audio=$('#audio');
+let fb=false;
+async function loadStream(){
+  fb=false;audio.src=ST[station].url;
+  try{await audio.play();msg('')}
+  catch(e){if(e.name==='NotAllowedError')msg('Webbläsaren blockerade uppspelningen. Tryck på Lyssna igen.')}
+}
+audio.onerror=()=>{
+  if(!playing)return;
+  if(!fb){fb=true;audio.src=audio.src.replace('-aac-128','-mp3-96');audio.play().catch(()=>{});return}
+  msg('Strömmen kunde inte spelas (felkod '+(audio.error?audio.error.code:'?')+') från '+ST[station].url+' och '+ST[station].url.replace('-aac-128','-mp3-96')+'. Öppna länken direkt i webbläsaren för att testa den. Adressen: '+location.protocol+'//'+(location.host||'lokal fil'));
+};
+(()=>{
+  const sel=$('#region');sel.innerHTML='';
+  REGIONS.forEach(([n,c])=>{const o=document.createElement('option');o.value=c;o.textContent=n;sel.appendChild(o)});
+  sel.value=REGIONS.some(r=>r[1]===LS('region'))?LS('region'):'p4sth';
+})();
+function applyRegion(){
+  const sel=$('#region'),name=sel.selectedOptions[0].textContent;
+  SET('region',sel.value);ST.p4={id:chIds[name]||null,url:live(sel.value)};
+}
+async function loadRegions(){
+  try{
+    const r=await fetch('https://api.sr.se/api/v2/channels?format=json&size=100');
+    (await r.json()).channels.forEach(c=>{chIds[c.name]=c.id});
+    applyRegion();
+    if(station==='p4')poll();
+  }catch(e){}
+}
+$('#region').onchange=()=>{applyRegion();if(station==='p4')setStation('p4')};
+const msg=t=>$('#msg').textContent=t||'';
+
+/* ---------- UI ---------- */
+$('#redir').textContent=REDIR;
+$('#cid').value=LS('cid')||'';
+$('#delay').value=delay; $('#dv').textContent=delay;
+if(location.protocol==='file:') msg('Spotify godkänner inte file://-adresser. Lägg filen på en https-adress eller kör den via en lokal server (se instruktionerna).');
+GENRES.forEach(([l,g])=>{
+  const b=document.createElement('button');b.textContent=l;b.dataset.g=g;
+  b.onclick=()=>{genre=g;SET('genre',g);paintGenres();if(swapped)startSpotify()};
+  $('#genres').appendChild(b);
+});
+function paintGenres(){document.querySelectorAll('#genres button').forEach(b=>b.classList.toggle('on',b.dataset.g===genre))}
+paintGenres();
+$('#delay').oninput=e=>{delay=+e.target.value;SET('delay',delay);$('#dv').textContent=delay};
+
+function setStation(s){
+  station=s;song=null;
+  $('#region').hidden=s!=='p4';
+  $('#b-p3').classList.toggle('on',s==='p3');$('#b-p4').classList.toggle('on',s==='p4');
+  if(playing)loadStream();
+  poll();
+}
+$('#b-p3').onclick=()=>setStation('p3');
+$('#b-p4').onclick=()=>setStation('p4');
+
+$('#play').onclick=async()=>{
+  if(!playing){
+    playing=true;audio.muted=false;
+    await loadStream();
+    try{lock=await navigator.wakeLock?.request('screen')}catch(e){}
+    $('#play').textContent='■ Stoppa';
+  }else{
+    playing=false;audio.pause();audio.removeAttribute('src');
+    if(swapped){swapped=false;spotifyPause();$('#spot').textContent='–'}
+    lock?.release?.();$('#play').textContent='▶ Lyssna';
+  }
+  evaluate();
+};
+
+/* ---------- Spotify auth (PKCE) ---------- */
+const CH='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const rnd=n=>{const a=new Uint8Array(n);crypto.getRandomValues(a);return [...a].map(x=>CH[x%62]).join('')};
+const b64=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+
+$('#login').onclick=async()=>{
+  const cid=$('#cid').value.trim();
+  if(!cid)return msg('Ange ditt Client ID först.');
+  if(!crypto.subtle)return msg('Inloggning kräver https eller localhost.');
+  SET('cid',cid);
+  const v=rnd(64);SET('verifier',v);
+  const ch=b64(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v)));
+  location.href='https://accounts.spotify.com/authorize?'+new URLSearchParams({
+    client_id:cid,response_type:'code',redirect_uri:REDIR,
+    scope:'user-modify-playback-state user-read-playback-state',
+    code_challenge_method:'S256',code_challenge:ch});
+};
+$('#logout').onclick=()=>{localStorage.removeItem('tok');paintAuth()};
+
+async function tokenReq(p){
+  const r=await fetch('https://accounts.spotify.com/api/token',{method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(p)});
+  if(!r.ok){localStorage.removeItem('tok');paintAuth();return null}
+  const j=await r.json();
+  const old=JSON.parse(LS('tok')||'null');
+  SET('tok',JSON.stringify({access:j.access_token,refresh:j.refresh_token||old?.refresh,exp:Date.now()+j.expires_in*1000}));
+  paintAuth();return j.access_token;
+}
+async function token(){
+  const t=JSON.parse(LS('tok')||'null');
+  if(!t)return null;
+  if(Date.now()<t.exp-60000)return t.access;
+  return tokenReq({grant_type:'refresh_token',refresh_token:t.refresh,client_id:LS('cid')});
+}
+function paintAuth(){$('#auth').textContent=LS('tok')?'✓ Inloggad på Spotify':'Ej inloggad'}
+async function api(path,opt={}){
+  const t=await token();if(!t)throw new Error('Inte inloggad på Spotify.');
+  return fetch('https://api.spotify.com/v1'+path,{...opt,headers:{Authorization:'Bearer '+t,'Content-Type':'application/json'}});
+}
+(async()=>{
+  const code=new URLSearchParams(location.search).get('code');
+  if(code){
+    history.replaceState({},'',REDIR);
+    await tokenReq({grant_type:'authorization_code',code,redirect_uri:REDIR,client_id:LS('cid'),code_verifier:LS('verifier')});
+  }
+  paintAuth();
+  if(!LS('tok'))$('#setup').open=true;
+})();
+
+/* ---------- Spotify playback ---------- */
+async function startSpotify(){
+  try{
+    const dr=await api('/me/player/devices');
+    const devs=(await dr.json()).devices||[];
+    if(!devs.length){msg('Ingen Spotify-enhet hittad. Öppna Spotify-appen och spela något en sekund, försök sedan igen.');return false}
+    const dev=devs.find(d=>d.is_active)||devs[0];
+    const sr=await api('/search?'+new URLSearchParams({q:`genre:"${genre}"`,type:'track',limit:10,offset:Math.floor(Math.random()*90),market:'SE'}));
+    const items=(await sr.json()).tracks?.items||[];
+    if(!items.length){msg('Hittade inga låtar för den genren.');return false}
+    const pr=await api('/me/player/play?device_id='+dev.id,{method:'PUT',body:JSON.stringify({uris:items.map(t=>t.uri)})});
+    if(!pr.ok&&pr.status!==204){msg('Spotify kunde inte spela (kräver Premium).');return false}
+    msg('');setTimeout(pollSpot,1200);return true;
+  }catch(e){msg(e.message);return false}
+}
+async function pollSpot(){
+  if(!swapped){$('#spot').textContent='–';return}
+  try{
+    const r=await api('/me/player');
+    if(r.status!==200)return;
+    const t=(await r.json()).item;
+    if(t&&swapped)$('#spot').textContent=t.artists.map(a=>a.name).join(', ')+' – '+t.name;
+  }catch(e){}
+}
+setInterval(pollSpot,2500);
+async function spotifyPause(){try{await api('/me/player/pause',{method:'PUT'})}catch(e){}}
+
+/* ---------- Radio-info ---------- */
+const parseT=s=>s?+(/\d+/.exec(s)||[0])[0]:0;
+async function poll(){
+  if(!ST[station].id){song=null;evaluate();return}
+  try{
+    const r=await fetch(`https://api.sr.se/api/v2/playlists/rightnow?channelid=${ST[station].id}&format=json`);
+    const p=(await r.json()).playlist;
+    const s=p&&p.song;
+    song=s?{title:s.title,artist:s.artist,start:parseT(s.starttimeutc),stop:parseT(s.stoptimeutc)}:null;
+  }catch(e){song=null}
+  evaluate();
+}
+setInterval(poll,4000);setInterval(evaluate,250);
+
+function evaluate(){
+  const heard=Date.now()-delay*1000;
+  const isMusic=!!(song&&heard>=song.start&&heard<song.stop);
+  $('#now').textContent=song?`${song.artist} – ${song.title}`:'Prat / ingen låtinfo';
+  const st=$('#status');
+  if(!playing){st.textContent='Stoppad';st.className='mut'}
+  else if(isMusic){st.textContent='Musik i radion → spelar '+GENRES.find(g=>g[1]===genre)[0]+' i Spotify';st.className='swap'}
+  else{st.textContent='Prat i radion – lyssnar live';st.className='mut'}
+  if(playing&&isMusic&&!swapped&&Date.now()>retryAt){
+    swapped=true;audio.muted=true;
+    startSpotify().then(ok=>{if(!ok){swapped=false;audio.muted=false;retryAt=Date.now()+15000}});
+  }else if(swapped&&(!isMusic||!playing)){
+    swapped=false;audio.muted=false;spotifyPause();$('#spot').textContent='–';
+  }
+}
+applyRegion();setStation('p3');loadRegions();
+</script>
+</body>
+</html>
