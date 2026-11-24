@@ -51,6 +51,7 @@ details summary{cursor:pointer;font-weight:600}
     <div id="status" class="mut">Stoppad</div>
     <div class="mut" style="margin-top:12px">Spelas i Spotify</div>
     <div id="spot">–</div>
+    <div class="mut" id="lag" style="margin-top:12px"></div>
   </div>
 
   <div class="card">
@@ -86,11 +87,11 @@ const $=s=>document.querySelector(s);
 const LS=k=>localStorage.getItem(k), SET=(k,v)=>localStorage.setItem(k,v);
 const REDIR=location.href.split('?')[0].split('#')[0];
 const REGIONS=[['P4 Blekinge','p4blek'],['P4 Dalarna','p4dala'],['P4 Gotland','p4gotl'],['P4 Gävleborg','p4gavl'],['P4 Göteborg','p4gbg'],['P4 Halland','p4hall'],['P4 Jämtland','p4jmtl'],['P4 Jönköping','p4jkpg'],['P4 Kalmar','p4kalm'],['P4 Kristianstad','p4krist'],['P4 Kronoberg','p4kron'],['P4 Malmöhus','p4malm'],['P4 Norrbotten','p4nbtn'],['P4 Sjuhärad','p4sju'],['P4 Skaraborg','p4skbg'],['P4 Stockholm','p4sth'],['P4 Sörmland','p4sorm'],['P4 Uppland','p4uppl'],['P4 Värmland','p4vrml'],['P4 Väst','p4vast'],['P4 Västerbotten','p4vbtn'],['P4 Västernorrland','p4vnrl'],['P4 Västmanland','p4vstm'],['P4 Örebro','p4oreb'],['P4 Östergötland','p4ostg']];
-const live=c=>`https://live1.sr.se/${c}-aac-128`;
+const live=c=>`https://live1.sr.se/${c}-aac-128?latency=low`;
 const ST={p3:{id:164,url:live('p3')},p4:{id:701,url:live('p4sth')}};
 const chIds={'P4 Stockholm':701};
 const GENRES=[['Pop','pop'],['Rock','rock'],['Hiphop','hip hop'],['Jazz','jazz'],['Klassisk','classical'],['Elektronisk','electronic'],['Country','country'],['Reggae','reggae'],['Metal','metal'],['Folk','folk'],['Indie','indie'],['R&B','r&b']];
-let station='p3', playing=false, swapped=false, song=null, retryAt=0, lock=null;
+let station='p3', playing=false, swapped=false, song=null, songs=[], seen={}, retryAt=0, lock=null;
 let genre=LS('genre')||'pop', delay=+(LS('delay')||0);
 const audio=$('#audio');
 let fb=false;
@@ -140,7 +141,7 @@ paintGenres();
 $('#delay').oninput=e=>{delay=+e.target.value;SET('delay',delay);$('#dv').textContent=delay};
 
 function setStation(s){
-  station=s;song=null;
+  station=s;song=null;songs=[];
   $('#region').hidden=s!=='p4';
   $('#b-p3').classList.toggle('on',s==='p3');$('#b-p4').classList.toggle('on',s==='p4');
   if(playing)loadStream();
@@ -246,21 +247,31 @@ async function spotifyPause(){try{await api('/me/player/pause',{method:'PUT'})}c
 /* ---------- Radio-info ---------- */
 const parseT=s=>s?+(/\d+/.exec(s)||[0])[0]:0;
 async function poll(){
-  if(!ST[station].id){song=null;evaluate();return}
+  if(!ST[station].id){song=null;songs=[];evaluate();return}
   try{
-    const r=await fetch(`https://api.sr.se/api/v2/playlists/rightnow?channelid=${ST[station].id}&format=json`);
-    const p=(await r.json()).playlist;
-    const s=p&&p.song;
-    song=s?{title:s.title,artist:s.artist,start:parseT(s.starttimeutc),stop:parseT(s.stoptimeutc)}:null;
-  }catch(e){song=null}
+    const r=await fetch(`https://api.sr.se/api/v2/playlists/rightnow?channelid=${ST[station].id}&format=json&_=${Date.now()}`,{cache:'no-store'});
+    const p=(await r.json()).playlist||{};
+    const mk=x=>x&&x.title?{title:x.title,artist:x.artist,start:parseT(x.starttimeutc),stop:parseT(x.stoptimeutc)}:null;
+    song=mk(p.song);
+    songs=[song,mk(p.nextsong)].filter(x=>x&&x.start&&x.stop);
+    songs.forEach(x=>{
+      const k=station+x.artist+x.title+x.start;
+      if(!seen[k]){
+        seen[k]=1;
+        const d=Math.round((Date.now()-x.start)/1000);
+        $('#lag').textContent=`Senaste låtinfo kom ${d>=0?d+' s efter':(-d)+' s före'} att låten började i SR:s tabell`;
+      }
+    });
+  }catch(e){song=null;songs=[]}
   evaluate();
 }
-setInterval(poll,4000);setInterval(evaluate,250);
+setInterval(poll,2000);setInterval(evaluate,250);
 
 function evaluate(){
   const heard=Date.now()-delay*1000;
-  const isMusic=!!(song&&heard>=song.start&&heard<song.stop);
-  $('#now').textContent=song?`${song.artist} – ${song.title}`:'Prat / ingen låtinfo';
+  const active=songs.find(x=>heard>=x.start&&heard<x.stop);
+  const isMusic=!!active;
+  $('#now').textContent=active?`${active.artist} – ${active.title}`:(song?'Mellan låtar / prat':'Prat / ingen låtinfo');
   const st=$('#status');
   if(!playing){st.textContent='Stoppad';st.className='mut'}
   else if(isMusic){st.textContent='Musik i radion → spelar '+GENRES.find(g=>g[1]===genre)[0]+' i Spotify';st.className='swap'}
