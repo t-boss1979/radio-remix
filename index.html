@@ -126,7 +126,8 @@ const msg=t=>$('#msg').textContent=t||'';
 
 /* ---------- UI ---------- */
 $('#redir').textContent=REDIR;
-$('#cid').value=LS('cid')||'';
+const DEFAULT_CID='1497ae4f395e42278ed51a1e0c19138b';
+$('#cid').value=LS('cid')||DEFAULT_CID;
 $('#delay').value=delay; $('#dv').textContent=delay;
 if(location.protocol==='file:') msg('Spotify godkänner inte file://-adresser. Lägg filen på en https-adress eller kör den via en lokal server (se instruktionerna).');
 GENRES.forEach(([l,g])=>{
@@ -171,7 +172,7 @@ $('#login').onclick=async()=>{
   const cid=$('#cid').value.trim();
   if(!cid)return msg('Ange ditt Client ID först.');
   if(!crypto.subtle)return msg('Inloggning kräver https eller localhost.');
-  SET('cid',cid);
+  SET('cid',cid);localStorage.removeItem('noauto');
   const v=rnd(64);SET('verifier',v);
   const ch=b64(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v)));
   location.href='https://accounts.spotify.com/authorize?'+new URLSearchParams({
@@ -179,7 +180,7 @@ $('#login').onclick=async()=>{
     scope:'user-modify-playback-state user-read-playback-state',
     code_challenge_method:'S256',code_challenge:ch});
 };
-$('#logout').onclick=()=>{localStorage.removeItem('tok');paintAuth()};
+$('#logout').onclick=()=>{localStorage.removeItem('tok');SET('noauto','1');paintAuth()};
 
 async function tokenReq(p){
   const r=await fetch('https://accounts.spotify.com/api/token',{method:'POST',
@@ -208,7 +209,11 @@ async function api(path,opt={}){
     await tokenReq({grant_type:'authorization_code',code,redirect_uri:REDIR,client_id:LS('cid'),code_verifier:LS('verifier')});
   }
   paintAuth();
-  if(!LS('tok'))$('#setup').open=true;
+  if(!LS('tok')){
+    if(location.protocol!=='file:'&&!LS('noauto')&&!sessionStorage.getItem('triedLogin')){
+      sessionStorage.setItem('triedLogin','1');$('#login').onclick();
+    }else $('#setup').open=true;
+  }
 })();
 
 /* ---------- Spotify playback ---------- */
